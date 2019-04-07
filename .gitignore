@@ -1,0 +1,6 @@
+
+out*.png
+*.o
+*.bin
+*.ipch
+*h..gch

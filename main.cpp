@@ -22,7 +22,9 @@ void contrastStretch(Mat *src, Mat *dest, int r1, int s1, int r2, int s2);
 void doDFT(Mat *src, Mat *dst);
 void scaleN(int N, void* pin);
 int computeOutput(int x, int r1, int s1, int r2, int s2);
-
+void getGrayHistogram(Mat *src);
+void createHistImage(Mat *src, Mat *dest);
+int getHistMidpoint(Mat *src);
 
 int main(int argc, char ** argv)
 {
@@ -36,7 +38,7 @@ int main(int argc, char ** argv)
     RNG rng(123456);
 
     outputImage = halftoneImage.clone();
-    
+
     //Create GUI windows
     namedWindow("spectrum magnitude", CV_WINDOW_AUTOSIZE);
     moveWindow("spectrum magnitude", 500, 500);
@@ -53,14 +55,12 @@ int main(int argc, char ** argv)
     
     //used for drawing contours
     Mat drawing;
-    Mat thick;
-    Scalar color = Scalar( 0x00, 0xFF, 0xFF);
 
     //image container
     pair p;
 
     //thresholding value
-    int thresh_val = 150;
+    int thresh_val = 50;
 
     int num_contours = 0;
 
@@ -68,13 +68,17 @@ int main(int argc, char ** argv)
     bool q = false;
 
     Mat freqOrig;
+    Mat hist;
 
     //continue to scale until parameters are met
     while(!q){
 
         doDFT(&outputImage, &freqImage);
         freqOrig = freqImage.clone();
-        
+
+        Mat roi (freqImage,Rect(0, 0, 100, 100));
+        createHistImage(&roi, &hist);
+
         for(int y = 0; y < freqImage.rows; y++){
             for(int x = 0; x < freqImage.cols; x++){
                 
@@ -84,32 +88,15 @@ int main(int argc, char ** argv)
             }
         }
 
-        
-
         //need to decide which smoothing method to use
         //medianBlur(freqImage, freqImage, 3);
         GaussianBlur(freqImage, freqImage, Size(3,3), 1, 1);
-        
+        morphologyEx(freqImage, freqImage, MORPH_CLOSE, getStructuringElement(MORPH_RECT, Size(3,3)));
         threshold(freqImage, contoursImage, thresh_val, 255, THRESH_BINARY);
-         
-        //canny function only for data type conversion
-        Canny(contoursImage, canny, thresh_val, thresh_val * 2, 3);
-        thick = Mat::zeros(canny.size(), CV_8UC3);
 
-        findContours(canny, contours, hierarchy,CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
-        
-        //take existing contours and thicken them to connect them 
-        for(unsigned int i = 0; i < contours.size(); i++){
-            drawContours(thick, contours, i, color, 3, 8, hierarchy, 0);
-        }
+        findContours(contoursImage, contours, hierarchy,CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
+        drawing = Mat::zeros(contoursImage.size(), CV_8UC3);
 
-        //blur to additionally attemp to connect contours
-        GaussianBlur(thick, thick, Size(9,9), 2, 2);
-        Canny(thick, canny, thresh_val, thresh_val * 2, 3);
-        drawing = Mat::zeros(canny.size(), CV_8UC3);
-
-        //find contours in modified image
-        findContours(canny, contours, hierarchy,CV_RETR_TREE, CV_CHAIN_APPROX_NONE);        
         for(unsigned int i = 0; i < contours.size(); i++){
             if(hierarchy.at(i)[3] == -1){
                 drawContours(drawing, contours, i, Scalar( rng.uniform(0,255), rng.uniform(0,255), rng.uniform(0,255)), -1, 8, hierarchy, 0);
@@ -126,16 +113,19 @@ int main(int argc, char ** argv)
         //Display results
         imshow("Input Image"       , halftoneImage   ); 
         imshow("Output Image"       , outputImage );    
+        imshow("thresholded", contoursImage);
         imshow("spectrum magnitude", drawing);
         imshow("frequency domain", freqOrig);
+        imshow("hist", hist);
 
         //freq response may be clipped at edge of image
         //this allows for 2 contours lines at each edge
-        if(num_contours > 2){
+        if(num_contours > 3){
             
             //If dots found rescale image
             scaleN(1, (void*) &p);
             num_contours = 0;
+            
             waitKey();
         }
         else{
@@ -298,6 +288,7 @@ void contrastStretch(Mat *src, Mat *dest, int r1, int s1, int r2, int s2){
     }
 }
 
+//contrast stretch one point
 int computeOutput(int x, int r1, int s1, int r2, int s2)
 {
     float result;
@@ -309,4 +300,86 @@ int computeOutput(int x, int r1, int s1, int r2, int s2)
         result = ((255 - s2)/(255 - r2)) * (x - r2) + s2;
     }
     return (int)result;
+}
+
+void getGrayHistogram(Mat *src){
+    
+    uint8_t hist[256];
+
+    for(int i = 0; i < 256; i++){
+        *(hist + i) = 0;
+    }
+    
+    uchar k;
+
+    for(int i = 0; i < src->rows; i++){
+        for(int j = 0; j < src->cols; j++){
+            k = src->at<uchar>(i,j);
+            hist[(uint8_t)k]++;
+        }
+    }
+
+    for(int i = 0; i < 256; i++){
+        if(*(hist + i) != 0)
+            printf("%d: %d\n", i ,*(hist + i));
+    }
+}  
+
+int getHistMidpoint(Mat *src){
+    uint8_t hist[256];
+    int h = src->rows;
+    int w = src->cols;
+
+    int total = h * w;
+    int acc = 0;
+
+    for(int i = 0; i < 256; i++){
+        *(hist + i) = 0;
+    }
+    
+    uchar k;
+
+    for(int i = 0; i < src->rows; i++){
+        for(int j = 0; j < src->cols; j++){
+            k = src->at<uchar>(i,j);
+            hist[(uint8_t)k]++;
+        }
+    }
+
+    for(int i = 0; i < 256; i++){
+        acc += *(hist + i);
+        if(acc > (total >> 1)){
+            return i;
+        }
+    }
+
+}
+
+void createHistImage(Mat *src, Mat *dest){
+    
+    uint8_t hist[256];
+
+    for(int i = 0; i < 256; i++){
+        *(hist + i) = 0;
+    }
+    
+    uchar k;
+
+    for(int i = 0; i < src->rows; i++){
+        for(int j = 0; j < src->cols; j++){
+            k = src->at<uchar>(i,j);
+            hist[(uint8_t)k]++;
+        }
+    }
+
+    *dest = Mat::zeros(Size(512, 512), CV_8UC1); 
+
+    int h;
+
+    for(int i = 0; i < 256; i++){
+        h = *(hist + i);
+        line(*dest, Point(i << 1, 512), Point(i << 1, 512 - h), Scalar(255,255,255) , 2);
+    }
+
+
 }
