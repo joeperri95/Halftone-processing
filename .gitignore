@@ -3,4 +3,6 @@ out*.png
 *.o
 *.bin
 *.ipch
-*h..gch
+*h.gch
+.vscode
+run

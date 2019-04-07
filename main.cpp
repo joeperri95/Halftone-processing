@@ -74,6 +74,8 @@ int main(int argc, char ** argv)
     while(!q){
 
         doDFT(&outputImage, &freqImage);
+        thresh_val = getHistMidpoint(&freqImage);
+        std::cout << getHistMidpoint(&freqImage) << std::endl;
         freqOrig = freqImage.clone();
 
         Mat roi (freqImage,Rect(0, 0, 100, 100));
@@ -88,10 +90,9 @@ int main(int argc, char ** argv)
             }
         }
 
-        //need to decide which smoothing method to use
-        //medianBlur(freqImage, freqImage, 3);
-        GaussianBlur(freqImage, freqImage, Size(3,3), 1, 1);
         morphologyEx(freqImage, freqImage, MORPH_CLOSE, getStructuringElement(MORPH_RECT, Size(3,3)));
+        GaussianBlur(freqImage, freqImage, Size(3,3), 1, 1);
+
         threshold(freqImage, contoursImage, thresh_val, 255, THRESH_BINARY);
 
         findContours(contoursImage, contours, hierarchy,CV_RETR_TREE, CV_CHAIN_APPROX_SIMPLE);
@@ -342,17 +343,36 @@ int getHistMidpoint(Mat *src){
     for(int i = 0; i < src->rows; i++){
         for(int j = 0; j < src->cols; j++){
             k = src->at<uchar>(i,j);
-            hist[(uint8_t)k]++;
+            
+            hist[(int) k]++;
+            
         }
+        
     }
 
-    for(int i = 0; i < 256; i++){
-        acc += *(hist + i);
-        if(acc > (total >> 1)){
-            return i;
+    for(int z = 0; z < 256; z++){
+        acc += hist[z];
+        if(acc >= (total / 2)){
+            return z;
         }
+
+        std::cout << "bit:" << z << " count: " << (int) hist[z] << " acc:" << acc << std::endl;
+
     }
 
+    total = acc;
+    acc = 0;
+    for(int z = 0; z < 256; z++){
+        acc += hist[z];
+        if(acc >= (total / 2)){
+            return z;
+        }
+
+        std::cout << "bit:" << z << " count: " << (int) hist[z] << " acc:" << acc << std::endl;
+
+    }
+
+    return -1;
 }
 
 void createHistImage(Mat *src, Mat *dest){
@@ -363,7 +383,10 @@ void createHistImage(Mat *src, Mat *dest){
         *(hist + i) = 0;
     }
     
+    int height = src->rows;
+    int width = src->cols;
     uchar k;
+
 
     for(int i = 0; i < src->rows; i++){
         for(int j = 0; j < src->cols; j++){
